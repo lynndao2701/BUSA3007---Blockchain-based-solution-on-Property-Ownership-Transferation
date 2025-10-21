@@ -1,0 +1,75 @@
+/* Center the brand; float all controls to the right via absolute positioning */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+
+  display: flex;
+  justify-content: center;   /* centers the brand */
+  align-items: center;
+
+  padding: 12px 16px;
+  background: #0f172a;
+  color: #fff;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  backdrop-filter: blur(6px);
+}
+
+/* Right controls sit on the right edge, independent of center width */
+.header-right {
+  position: absolute;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: .2px;
+  text-align: center;        /* ensures multi-line brand stays centered */
+}
+
+/* Change Role button */
+.role-btn {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+  color: #fff;
+  cursor: pointer;
+}
+.role-btn:hover { background: rgba(255,255,255,.12); }
+
+/* Profile */
+.profile-section { position: relative; }
+.profile {
+  width: 34px; height: 34px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255,255,255,.2);
+  cursor: pointer;
+}
+.dropdown-menu {
+  position: absolute; right: 0; top: calc(100% + 8px);
+  min-width: 180px;
+  background: #111827; color: #fff;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px; padding: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.dropdown-menu button {
+  width: 100%; height: 36px;
+  border: 0; border-radius: 8px; color: #fff;
+  background: #ef4444; cursor: pointer;
+}
+.dropdown-menu button:hover { background: #dc2626; }
+.dropdown-greeting { padding: 6px 8px 10px; font-size: .9rem; color: #cbd5e1; }
+
+/* Small screens: hide nav if needed, keep brand centered & controls right */
+@media (max-width: 720px) {
+  .nav { display: none; }
+  .brand { font-size: 1.1rem; }
+}

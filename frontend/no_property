@@ -1,0 +1,348 @@
+// // components/PropertyCard.jsx
+// import React, { useMemo, useState } from 'react';
+// import './PropertyCard.css';
+// import { ethers } from 'ethers';
+
+// const API = 'http://localhost:5000';
+
+// function PropertyCard({ property = {}, currentWallet: walletFromProp }) {
+//   const {
+//     _id,
+//     imageUrl = '',                 // normalized by HomePage to DB value
+//     location = 'Unknown',
+//     seller_name = 'N/A',
+//     seller_address = '',
+//     num_of_rooms = 0,
+//     num_of_bedroom = 0,
+//     price_in_ETH = 0,
+//   } = property;
+
+//   // Local UI state so we can update immediately after edits
+//   const [displayUrl, setDisplayUrl] = useState(imageUrl);
+//   const [price, setPrice] = useState(price_in_ETH);
+//   const [imgError, setImgError] = useState(false);
+
+//   // Edit modal
+//   const [showEdit, setShowEdit] = useState(false);
+//   const [saving, setSaving] = useState(false);
+//   const [msg, setMsg] = useState('');
+//   const [formUrl, setFormUrl] = useState('');   // paste image URL
+//   const [file, setFile] = useState(null);       // or upload file
+//   const [formPrice, setFormPrice] = useState(String(price ?? price_in_ETH ?? ''));
+//   // Wallet / role
+//   const currentWallet = walletFromProp || localStorage.getItem('wallet') || '';
+//   const isSellerViewing = useMemo(() => {
+//     if (!currentWallet || !seller_address) return false;
+//     try { return ethers.getAddress(currentWallet) === ethers.getAddress(seller_address); }
+//     catch { return false; }
+//   }, [currentWallet, seller_address]);
+
+//   // --------- Book / Pay (unchanged) ----------
+//   const handlePay = async () => {
+//     try {
+//       if (!window.ethereum) throw new Error('MetaMask not found');
+//       if (!seller_address) throw new Error('Seller wallet not available');
+//       if (!/^0x[a-fA-F0-9]{40}$/.test(seller_address)) throw new Error('Invalid seller address');
+
+//       const provider = new ethers.BrowserProvider(window.ethereum);
+//       const signer = await provider.getSigner();
+
+//       // Ensure Linea mainnet (or your target)
+//       // const net = await provider.getNetwork();
+//       // if (Number(net.chainId) !== 59144) {
+//       //   await window.ethereum.request({
+//       //     method: 'wallet_switchEthereumChain',
+//       //     params: [{ chainId: '0xE708' }],
+//       //   });
+//       // }
+
+//       const fromAddr = await signer.getAddress();
+
+//       const valueEth = String(price_in_ETH ?? 0).trim();
+//       if (!/^\d+(\.\d+)?$/.test(valueEth)) throw new Error('Invalid price format');
+//       const valueWei = ethers.parseEther(valueEth);
+//       if (valueWei <= ethers.toBigInt(0)) throw new Error('Amount must be > 0');
+
+//       // --- CHANGED PART: get gas price (v6) ---
+//       const fee = await provider.getFeeData(); // { gasPrice, maxFeePerGas, maxPriorityFeePerGas }
+//       // For simple legacy-like check:
+//       const gasPrice =
+//         fee.gasPrice ??
+//         ethers.toBigInt(await provider.send('eth_gasPrice', [])); // hex string -> BigInt
+
+//       // Estimate gas limit for a simple transfer (usually 21000)
+//       const gasLimit = await provider.estimateGas({
+//         from: fromAddr,
+//         to: seller_address,
+//         value: valueWei,
+//       }).catch(() => ethers.toBigInt(21000));
+
+//       // Balance check
+//       const balance = await provider.getBalance(fromAddr);
+//       const needed = valueWei + gasPrice * gasLimit;
+//       if (balance < needed) {
+//         const short = Number(ethers.formatEther(needed - balance)).toFixed(6);
+//         throw new Error(`Insufficient funds. Need ~${short} more ETH for value + gas`);
+//       }
+
+//       // Send tx (ethers v6 uses BigInt for gas/values)
+//       const tx = await signer.sendTransaction({
+//         to: seller_address,
+//         value: valueWei,
+//         gasLimit,
+//         // You may also include maxFeePerGas / maxPriorityFeePerGas if preferred
+//       });
+
+//       await tx.wait(1);
+
+//       // Backend verify
+//       const res = await fetch('http://localhost:5000/web3/verify', {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({ txHash: tx.hash, propertyId: _id, from: fromAddr }),
+//       });
+//       const data = await res.json();
+//       if (!res.ok) throw new Error(data.error || 'Backend verification failed');
+
+//       alert('Payment verified ✅');
+//     } catch (e) {
+//       console.error('Pay error:', e);
+//       alert(e?.shortMessage || e?.message || 'Payment failed');
+//     }
+//   };
+
+//   // --------- Edit (image + price) ----------
+//   const openEdit = () => {
+//     setMsg('');
+//     setFormUrl('');
+//     setFile(null);
+//     setFormPrice(String(price ?? price_in_ETH ?? ''));;
+//     setShowEdit(true);
+//   };
+
+//   // mutually exclusive image inputs
+//   const onUrlChange = (e) => {
+//     setFormUrl(e.target.value);
+//     if (e.target.value) setFile(null);
+//   };
+//   const onFileChange = (e) => {
+//     const f = e.target.files?.[0] || null;
+//     setFile(f);
+//     if (f) setFormUrl('');
+//   };
+
+//   const saveChanges = async (e) => {
+//     e.preventDefault();
+//     setMsg('');
+//     const token = localStorage.getItem('token');
+//     if (!token) return setMsg('Please login first.');
+
+//     // price (optional)
+//     let pricePayload;
+//     const p = String(formPrice || '').trim();
+//     if (p) {
+//       if (!/^\d+(\.\d+)?$/.test(p)) return setMsg('Price must be a number (e.g., 0.05)');
+//       if (Number(p) <= 0) return setMsg('Price must be > 0');
+//       pricePayload = Number(p);
+//     }
+
+//     // image (optional)
+//     let finalUrl = formUrl.trim();
+//     if (!finalUrl && file) {
+//       const fd = new FormData();
+//       fd.append('image', file);
+//       const up = await fetch(`${API}/upload/image`, { method: 'POST', body: fd });
+//       const upData = await up.json();
+//       if (!up.ok) return setMsg(upData.error || 'Image upload failed');
+//       finalUrl = `${API}${upData.url}`;
+//     }
+//     if (finalUrl && !/^https?:\/\/.+/i.test(finalUrl)) {
+//       return setMsg('Image URL must start with http(s)://');
+//     }
+
+//     if (!finalUrl && pricePayload === undefined) {
+//       return setMsg('Nothing to update');
+//     }
+
+//     try {
+//       setSaving(true);
+//       const body = {};
+//       if (pricePayload !== undefined) body.price_in_ETH = pricePayload;
+//       if (finalUrl) body.imageUrl = finalUrl; // backend accepts imageUrl/imageURL and writes to schema
+
+//       const res = await fetch(`${API}/property/${_id}`, {
+//         method: 'PUT',
+//         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+//         body: JSON.stringify(body),
+//       });
+//       const data = await res.json();
+//       if (!res.ok) {
+//         setSaving(false);
+//         return setMsg(data.error || 'Update failed');
+//       }
+
+//       // update local UI
+//       if (pricePayload !== undefined) setPrice(pricePayload);
+//       if (finalUrl) { setDisplayUrl(finalUrl); setImgError(false); }
+
+//       setMsg('✅ Updated');
+//       setTimeout(() => setShowEdit(false), 600);
+//     } catch {
+//       setMsg('Network error');
+//     } finally {
+//       setSaving(false);
+//     }
+//   };
+
+//   return (
+//     <article className="prop-card">
+//       <div className="prop-card__image">
+//         {displayUrl && !imgError ? (
+//           <img
+//             src={displayUrl}
+//             alt={location || 'Property'}
+//             loading="lazy"
+//             onError={() => setImgError(true)}
+//           />
+//         ) : (
+//           <div
+//             style={{
+//               width: '100%',
+//               height: 220,
+//               borderTopLeftRadius: 16,
+//               borderTopRightRadius: 16,
+//               background: '#f3f4f6',
+//               display: 'grid',
+//               placeItems: 'center',
+//               color: '#94a3b8',
+//               fontSize: 14
+//             }}
+//           >
+//             No image
+//           </div>
+//         )}
+
+//         {/* Seller-only edit button */}
+//         {isSellerViewing && (
+//           <button
+//             type="button"
+//             onClick={openEdit}
+//             style={{
+//               position: 'absolute',
+//               right: 12,
+//               top: 12,
+//               padding: '6px 10px',
+//               borderRadius: 8,
+//               border: '1px solid rgba(0,0,0,.12)',
+//               background: '#ffffffdd',
+//               cursor: 'pointer',
+//               fontSize: 12
+//             }}
+//           >
+//             Edit
+//           </button>
+//         )}
+//       </div>
+
+//       <div className="prop-card__body">
+//         <h3 className="prop-card__title">{location}</h3>
+//         <dl className="prop-card__meta">
+//           <div className="prop-card__row"><dt>Seller</dt><dd>{seller_name}</dd></div>
+//           <div className="prop-card__row"><dt>Rooms</dt><dd>{num_of_rooms}</dd></div>
+//           <div className="prop-card__row"><dt>Bedrooms</dt><dd>{num_of_bedroom}</dd></div>
+//           <div className="prop-card__row"><dt>Price (ETH)</dt><dd>{price}</dd></div>
+//         </dl>
+
+//         <button
+//           onClick={handlePay}
+//           disabled={!seller_address || isSellerViewing}
+//           style={{
+//             marginTop: 8,
+//             width: '100%',
+//             height: 40,
+//             borderRadius: 10,
+//             border: '1px solid rgba(0,0,0,.12)',
+//             background: isSellerViewing || !seller_address ? '#9ca3af' : '#111827',
+//             color: '#fff',
+//             cursor: isSellerViewing || !seller_address ? 'not-allowed' : 'pointer'
+//           }}
+//         >
+//           {isSellerViewing ? 'You are the Seller' : 'Book / Pay'}
+//         </button>
+//       </div>
+
+//       {/* Edit Modal */}
+//       {showEdit && (
+//         <div
+//           onClick={() => !saving && setShowEdit(false)}
+//           style={{
+//             position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)',
+//             display: 'grid', placeItems: 'center', zIndex: 100
+//           }}
+//         >
+//           <div
+//             onClick={(e) => e.stopPropagation()}
+//             style={{
+//               width: 420, background: '#fff', borderRadius: 12, padding: 16,
+//               boxShadow: '0 10px 30px rgba(0,0,0,.25)'
+//             }}
+//           >
+//             <h4 style={{ marginBottom: 12 }}>Edit Property</h4>
+//             <form onSubmit={saveChanges} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+//               <label style={{ fontSize: 12, color: '#6b7280' }}>Price (ETH)</label>
+//               <input
+//                 value={formPrice}
+//                 onChange={(e) => setFormPrice(e.target.value)}
+//                 placeholder="e.g., 0.05"
+//                 inputMode="decimal"
+//                 style={{ padding: 10, fontSize: 14, borderRadius: 8, border: '1px solid #e5e7eb' }}
+//               />
+
+//               <label style={{ fontSize: 12, color: '#6b7280' }}>Image URL (or upload below)</label>
+//               <input
+//                 placeholder="https://..."
+//                 value={formUrl}
+//                 onChange={onUrlChange}
+//                 disabled={!!file}
+//                 style={{ padding: 10, fontSize: 14, borderRadius: 8, border: '1px solid #e5e7eb', opacity: file ? 0.6 : 1 }}
+//               />
+//               <input
+//                 type="file"
+//                 accept="image/*"
+//                 onChange={onFileChange}
+//                 disabled={!!formUrl}
+//                 style={{ padding: 10, fontSize: 14, borderRadius: 8, border: '1px solid #e5e7eb', opacity: formUrl ? 0.6 : 1 }}
+//               />
+
+//               {msg && (
+//                 <div style={{ color: msg.startsWith('✅') ? 'green' : 'crimson', fontWeight: 600 }}>
+//                   {msg}
+//                 </div>
+//               )}
+
+//               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+//                 <button
+//                   type="submit"
+//                   disabled={saving}
+//                   style={{ padding: '10px 12px', borderRadius: 8, background: '#111827', color: '#fff', border: '1px solid #111827', cursor: 'pointer' }}
+//                 >
+//                   {saving ? 'Saving…' : 'Save'}
+//                 </button>
+//                 <button
+//                   type="button"
+//                   disabled={saving}
+//                   onClick={() => setShowEdit(false)}
+//                   style={{ padding: '10px 12px', borderRadius: 8, background: '#fff', color: '#111827', border: '1px solid #e5e7eb', cursor: 'pointer' }}
+//                 >
+//                   Cancel
+//                 </button>
+//               </div>
+//             </form>
+//           </div>
+//         </div>
+//       )}
+//     </article>
+//   );
+// }
+
+// export default PropertyCard;
